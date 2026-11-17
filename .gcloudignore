@@ -1,0 +1,11 @@
+node_modules/
+.env
+.env.*
+.git/
+.gitignore
+hosting/
+firebase.json
+.firebaserc
+.firebase/
+README.md
+LICENSE

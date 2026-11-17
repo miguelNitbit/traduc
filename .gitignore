@@ -1,0 +1,14 @@
+node_modules/
+
+# Secretos y configuración propia de cada instalación
+.env
+.env.*
+!.env.example
+
+# Despliegue propio (direcciones y proyecto de cada iglesia)
+.firebase/
+.firebaserc
+firebase.json
+hosting/
+
+.DS_Store

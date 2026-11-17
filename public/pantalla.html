@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Subtítulos en vivo</title>
+<style>
+  /* Pantalla del templo: solo texto grande sobre negro.
+     Uso: /pantalla?lang=en&size=5  (size = tamaño de letra, en % del ancho) */
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #000; color: #fff; overflow: hidden; }
+  body {
+    display: flex; flex-direction: column; justify-content: flex-end;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  #text {
+    margin: 0; padding: 3vw 5vw;
+    font-size: var(--size, 4.2vw); line-height: 1.3; font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  #state { position: fixed; top: 1vw; right: 1.5vw; font-size: 1.2vw; color: #777; }
+</style>
+</head>
+<body>
+<div id="state"></div>
+<p id="text"></p>
+<script>
+const params = new URLSearchParams(location.search);
+const lang = params.get('lang') || 'en';
+const size = Number(params.get('size'));
+if (size > 0) document.documentElement.style.setProperty('--size', `${size}vw`);
+document.documentElement.lang = lang;
+
+const MAX_CHARS = 700; // el texto antiguo sale por arriba
+const el = document.getElementById('text');
+const state = document.getElementById('state');
+let text = '';
+let retry = 0;
+
+function show(t) {
+  if (t.length > MAX_CHARS) { t = t.slice(-MAX_CHARS); t = t.slice(t.indexOf(' ') + 1); }
+  text = t;
+  el.textContent = t;
+}
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/ws?lang=${encodeURIComponent(lang)}`);
+  ws.onopen = () => { retry = 0; state.textContent = ''; };
+  ws.onmessage = (ev) => {
+    if (typeof ev.data !== 'string') return;
+    const msg = JSON.parse(ev.data);
+    if (msg.type === 'caption') show(text + msg.delta);
+    else if (msg.type === 'history') show(msg.text);
+    else if (msg.type === 'status' && !msg.live) show('');
+  };
+  ws.onclose = () => {
+    state.textContent = 'Reconectando…';
+    retry = Math.min(retry + 1, 5);
+    setTimeout(connect, retry * 1000);
+  };
+}
+connect();
+</script>
+</body>
+</html>

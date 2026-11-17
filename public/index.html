@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Live translation</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<main>
+  <!-- Paso 1: elegir idioma -->
+  <section id="pick">
+    <h1>Choose your language</h1>
+    <p class="muted">Listen to the sermon or read it live on your phone.</p>
+    <div class="langs" id="langs"></div>
+  </section>
+
+  <!-- Paso 2: escuchar y leer -->
+  <section id="player" hidden>
+    <div class="row" style="justify-content: space-between">
+      <span class="badge" id="badge"></span>
+      <button class="link" id="change"></button>
+    </div>
+    <button class="primary listen" id="listen"></button>
+    <p class="muted small" id="hint" style="margin-top: 8px"></p>
+    <div class="row sizes">
+      <button id="smaller" aria-label="Smaller text">A−</button>
+      <button id="bigger" aria-label="Larger text">A+</button>
+    </div>
+    <div class="card captions" id="captions"></div>
+  </section>
+</main>
+
+<script>
+// Textos de la interfaz en el idioma del oyente.
+const T = {
+  en: { listen: '▶ Listen', pause: '❚❚ Pause audio', live: 'Live', waiting: 'Waiting for the service to start', connecting: 'Connecting…', change: 'Change language', hint: 'Use headphones. Keep this page open; the translation runs a few seconds behind.', empty: 'The translated text will appear here.' },
+  pt: { listen: '▶ Ouvir', pause: '❚❚ Pausar áudio', live: 'Ao vivo', waiting: 'Aguardando o início do culto', connecting: 'Conectando…', change: 'Mudar idioma', hint: 'Use fones de ouvido. Mantenha esta página aberta; a tradução chega com alguns segundos de atraso.', empty: 'O texto traduzido aparecerá aqui.' },
+  fr: { listen: '▶ Écouter', pause: '❚❚ Mettre en pause', live: 'En direct', waiting: 'En attente du début du culte', connecting: 'Connexion…', change: 'Changer de langue', hint: 'Utilisez des écouteurs. Gardez cette page ouverte ; la traduction arrive avec quelques secondes de décalage.', empty: 'Le texte traduit apparaîtra ici.' },
+  de: { listen: '▶ Anhören', pause: '❚❚ Ton pausieren', live: 'Live', waiting: 'Warten auf den Beginn des Gottesdienstes', connecting: 'Verbinden…', change: 'Sprache ändern', hint: 'Bitte Kopfhörer benutzen. Lassen Sie diese Seite geöffnet; die Übersetzung kommt einige Sekunden verzögert.', empty: 'Der übersetzte Text erscheint hier.' },
+  it: { listen: '▶ Ascolta', pause: '❚❚ Metti in pausa', live: 'In diretta', waiting: 'In attesa dell’inizio del culto', connecting: 'Connessione…', change: 'Cambia lingua', hint: 'Usa le cuffie. Tieni aperta questa pagina; la traduzione arriva con qualche secondo di ritardo.', empty: 'Il testo tradotto apparirà qui.' },
+  ja: { listen: '▶ 聞く', pause: '❚❚ 音声を一時停止', live: 'ライブ', waiting: '礼拝の開始をお待ちください', connecting: '接続中…', change: '言語を変更', hint: 'イヤホンをご使用ください。このページを開いたままにしてください。翻訳は数秒遅れて届きます。', empty: '翻訳されたテキストがここに表示されます。' },
+  ko: { listen: '▶ 듣기', pause: '❚❚ 오디오 일시정지', live: '실시간', waiting: '예배 시작을 기다리는 중', connecting: '연결 중…', change: '언어 변경', hint: '이어폰을 사용하세요. 이 페이지를 열어 두세요. 통역은 몇 초 늦게 전달됩니다.', empty: '번역된 텍스트가 여기에 표시됩니다.' },
+  zh: { listen: '▶ 收听', pause: '❚❚ 暂停音频', live: '直播中', waiting: '等待聚会开始', connecting: '连接中…', change: '更换语言', hint: '请使用耳机。请保持此页面打开；翻译会延迟几秒钟。', empty: '翻译文字将显示在这里。' },
+  ru: { listen: '▶ Слушать', pause: '❚❚ Пауза', live: 'В эфире', waiting: 'Ожидание начала служения', connecting: 'Подключение…', change: 'Сменить язык', hint: 'Используйте наушники. Не закрывайте эту страницу; перевод идёт с задержкой в несколько секунд.', empty: 'Здесь появится переведённый текст.' },
+  hi: { listen: '▶ सुनें', pause: '❚❚ ऑडियो रोकें', live: 'लाइव', waiting: 'सभा शुरू होने की प्रतीक्षा है', connecting: 'कनेक्ट हो रहा है…', change: 'भाषा बदलें', hint: 'हेडफ़ोन का उपयोग करें। यह पेज खुला रखें; अनुवाद कुछ सेकंड देर से आता है।', empty: 'अनुवादित पाठ यहाँ दिखाई देगा।' },
+  id: { listen: '▶ Dengarkan', pause: '❚❚ Jeda audio', live: 'Langsung', waiting: 'Menunggu ibadah dimulai', connecting: 'Menghubungkan…', change: 'Ganti bahasa', hint: 'Gunakan earphone. Biarkan halaman ini terbuka; terjemahan tertunda beberapa detik.', empty: 'Teks terjemahan akan muncul di sini.' },
+  vi: { listen: '▶ Nghe', pause: '❚❚ Tạm dừng âm thanh', live: 'Trực tiếp', waiting: 'Đang chờ buổi nhóm bắt đầu', connecting: 'Đang kết nối…', change: 'Đổi ngôn ngữ', hint: 'Hãy dùng tai nghe. Giữ trang này mở; bản dịch chậm vài giây.', empty: 'Văn bản dịch sẽ hiện ở đây.' },
+};
+const MAX_CAPTION_CHARS = 1500;
+const $ = (id) => document.getElementById(id);
+
+let lang = null;
+let ws = null;
+let retry = 0;
+let connected = false;
+let live = false;
+let listening = false;
+let ctx = null;
+let nextTime = 0;
+let out = null; // a dónde se conecta cada fragmento de audio
+let player = null;
+let wakeLock = null;
+let captionText = '';
+
+function store(value) {
+  try {
+    if (value === undefined) return localStorage.getItem('lang');
+    if (value === null) localStorage.removeItem('lang'); else localStorage.setItem('lang', value);
+  } catch { /* modo privado: se ignora */ }
+  return null;
+}
+
+// ---------- Idioma ----------
+async function init() {
+  const info = await fetch('/api/info').then((r) => r.json());
+  for (const { code, name } of info.languages) {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.lang = code;
+    b.onclick = () => choose(code);
+    $('langs').append(b);
+  }
+  const wanted = new URLSearchParams(location.search).get('lang') || store();
+  if (info.languages.some((l) => l.code === wanted)) choose(wanted);
+}
+
+function choose(code) {
+  lang = code;
+  store(code);
+  document.documentElement.lang = code;
+  $('pick').hidden = true;
+  $('player').hidden = false;
+  $('change').textContent = T[lang].change;
+  $('hint').textContent = T[lang].hint;
+  $('captions').dataset.empty = T[lang].empty;
+  setCaptions('');
+  render();
+  connect();
+}
+
+$('change').onclick = () => {
+  setListening(false);
+  lang = null;
+  store(null);
+  ws?.close();
+  $('player').hidden = true;
+  $('pick').hidden = false;
+};
+
+// ---------- Conexión ----------
+function connect() {
+  const mine = lang;
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const sock = new WebSocket(`${proto}://${location.host}/ws?lang=${mine}`);
+  sock.binaryType = 'arraybuffer';
+  ws = sock;
+  sock.onopen = () => {
+    connected = true;
+    retry = 0;
+    sock.send(JSON.stringify({ type: 'audio', on: listening }));
+    render();
+  };
+  sock.onmessage = (ev) => {
+    if (typeof ev.data !== 'string') { play(ev.data); return; }
+    const msg = JSON.parse(ev.data);
+    if (msg.type === 'caption') setCaptions(captionText + msg.delta);
+    else if (msg.type === 'history') setCaptions(msg.text);
+    else if (msg.type === 'status') {
+      if (msg.live && !live) setCaptions('');
+      live = msg.live;
+      render();
+    }
+  };
+  sock.onclose = () => {
+    if (ws !== sock) return;
+    connected = false;
+    render();
+    if (lang !== mine) return;
+    retry = Math.min(retry + 1, 5);
+    setTimeout(() => { if (lang === mine && ws === sock) connect(); }, retry * 1000);
+  };
+}
+
+function render() {
+  if (!lang) return;
+  const t = T[lang];
+  $('badge').textContent = !connected ? t.connecting : live ? t.live : t.waiting;
+  $('badge').classList.toggle('live', connected && live);
+  $('listen').textContent = listening ? t.pause : t.listen;
+  $('listen').setAttribute('aria-pressed', String(listening));
+}
+
+// ---------- Tamaño de letra ----------
+const SIZES = [0.8, 1, 1.25, 1.55, 1.9, 2.4];
+let sizeIndex = 1;
+try { sizeIndex = Number(localStorage.getItem('size') ?? 1); } catch {}
+function setSize(i) {
+  sizeIndex = Math.max(0, Math.min(SIZES.length - 1, Number.isFinite(i) ? i : 1));
+  $('captions').style.setProperty('--scale', SIZES[sizeIndex]);
+  $('smaller').disabled = sizeIndex === 0;
+  $('bigger').disabled = sizeIndex === SIZES.length - 1;
+  try { localStorage.setItem('size', sizeIndex); } catch {}
+  $('captions').scrollTop = $('captions').scrollHeight;
+}
+$('smaller').onclick = () => setSize(sizeIndex - 1);
+$('bigger').onclick = () => setSize(sizeIndex + 1);
+setSize(sizeIndex);
+
+// ---------- Subtítulos ----------
+function setCaptions(text) {
+  if (text.length > MAX_CAPTION_CHARS) {
+    text = text.slice(-MAX_CAPTION_CHARS);
+    text = text.slice(text.indexOf(' ') + 1);
+  }
+  captionText = text;
+  const box = $('captions');
+  box.textContent = text;
+  box.scrollTop = box.scrollHeight;
+}
+
+// ---------- Audio ----------
+$('listen').onclick = () => setListening(!listening);
+
+function setListening(on) {
+  listening = on;
+  if (on) {
+    // El audio solo puede arrancar tras un toque del usuario.
+    if (!ctx) {
+      // En iPhone, hace que suene aunque el interruptor de silencio esté activado.
+      try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
+      const AC = window.AudioContext || window.webkitAudioContext;
+      ctx = new AC();
+      out = ctx.destination;
+      startBackgroundPlayer();
+    }
+    ctx.resume();
+    player?.play().catch(() => {});
+    if (navigator.mediaSession) navigator.mediaSession.playbackState = 'playing';
+    nextTime = 0;
+    keepAwake();
+  } else {
+    ctx?.suspend();
+    player?.pause();
+    if (navigator.mediaSession) navigator.mediaSession.playbackState = 'paused';
+    wakeLock?.release().catch(() => {});
+    wakeLock = null;
+  }
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'audio', on }));
+  render();
+}
+
+// Llegan fragmentos PCM16 mono a 24 kHz; se encadenan uno tras otro.
+function play(arrayBuffer) {
+  if (!listening || !ctx || ctx.state !== 'running') return;
+  const pcm = new Int16Array(arrayBuffer);
+  if (!pcm.length) return;
+  const now = ctx.currentTime;
+  if (nextTime - now > 4) return; // demasiado atraso acumulado: se descarta para volver al vivo
+  if (nextTime < now + 0.02) nextTime = now + 0.15; // pequeño colchón contra cortes de red
+  const buffer = ctx.createBuffer(1, pcm.length, 24000);
+  const out = buffer.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) out[i] = pcm[i] / 32768;
+  const src = ctx.createBufferSource();
+  src.buffer = buffer;
+  src.connect(out);
+  src.start(nextTime);
+  nextTime += buffer.duration;
+}
+
+// El sonido sale por un reproductor de medios del sistema en vez de directo por Web Audio:
+// así el celular lo trata como música y sigue sonando con la pantalla bloqueada.
+function startBackgroundPlayer() {
+  try {
+    const dest = ctx.createMediaStreamDestination();
+    player = new Audio();
+    player.srcObject = dest.stream;
+    out = dest;
+    player.play().catch(() => {
+      // Si el navegador no lo permite, se vuelve a la salida directa.
+      out = ctx.destination;
+      player = null;
+    });
+  } catch {
+    out = ctx.destination;
+    player = null;
+  }
+  if (navigator.mediaSession) {
+    navigator.mediaSession.metadata = new MediaMetadata({ title: 'Live translation', artist: document.title });
+    navigator.mediaSession.setActionHandler('play', () => setListening(true));
+    navigator.mediaSession.setActionHandler('pause', () => setListening(false));
+  }
+  // Tras una llamada u otra interrupción, el audio se reanuda solo.
+  ctx.onstatechange = () => { if (listening && ctx.state !== 'running') ctx.resume().catch(() => {}); };
+}
+
+// Evita que la pantalla se apague mientras se escucha (requiere HTTPS).
+async function keepAwake() {
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {}
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && listening) {
+    ctx?.resume();
+    keepAwake();
+  }
+});
+
+init();
+</script>
+</body>
+</html>

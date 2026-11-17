@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Control de traducción</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<main>
+  <h1>Control de traducción</h1>
+  <p class="muted" id="mock" hidden>Modo de prueba: no se usa OpenAI; los oyentes reciben pitidos y texto de ejemplo.</p>
+
+  <!-- Entrada con PIN -->
+  <form class="card" id="login">
+    <label for="pin">PIN de control (aparece en la Terminal al iniciar el servidor)</label>
+    <div class="row" style="margin-top: 8px">
+      <input id="pin" inputmode="numeric" autocomplete="off" required>
+      <button class="primary">Entrar</button>
+    </div>
+    <p class="error" id="loginError" style="margin: 12px 0 0" hidden></p>
+  </form>
+
+  <div id="panel" hidden>
+    <div class="card">
+      <div class="row" style="justify-content: space-between">
+        <span class="badge" id="badge">Detenida</span>
+        <span class="muted small" id="conn"></span>
+      </div>
+      <label for="device" style="display: block; margin-top: 12px">Entrada de audio</label>
+      <select id="device" style="width: 100%; margin-top: 4px"></select>
+      <p class="muted small" style="margin: 8px 0">Lo ideal es la salida de la consola de sonido, no el micrófono de la Mac.</p>
+      <div class="meter" aria-hidden="true"><div id="level"></div></div>
+      <button class="primary" id="toggle" style="width: 100%; margin-top: 16px">Iniciar transmisión</button>
+      <p class="error" id="error" style="margin: 12px 0 0" hidden></p>
+    </div>
+
+    <h2>Vista previa de la traducción</h2>
+    <div class="card">
+      <label for="previewLang">Idioma</label>
+      <select id="previewLang" style="margin-left: 8px"></select>
+      <p class="preview" id="preview" data-empty="Aquí aparece el texto traducido mientras transmites."></p>
+      <p class="muted small" style="margin: 8px 0 0">La vista previa mantiene encendida la traducción de ese idioma, así su texto queda guardado completo.</p>
+    </div>
+
+    <h2>Texto de la prédica</h2>
+    <div class="card">
+      <div class="row" id="downloads"></div>
+      <p class="muted small" id="downloadsNote" style="margin: 8px 0 0"></p>
+    </div>
+
+    <h2>Idiomas</h2>
+    <div class="card">
+      <table>
+        <thead><tr><th>Idioma</th><th class="num">Oyentes</th><th>Traducción</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <p class="muted small" style="margin: 12px 0 0">Un idioma solo se traduce (y solo cuesta) mientras alguien lo tiene abierto.</p>
+    </div>
+
+    <h2>Enlace para los oyentes</h2>
+    <div class="card row">
+      <img class="qr" src="/qr.svg" alt="Código QR del enlace para oyentes">
+      <div style="flex: 1; min-width: 200px">
+        <p class="url" id="url"></p>
+        <p class="muted small">Pantalla del templo: <span class="url" id="screenUrl"></span></p>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let ws = null;
+let pin = '';
+let serverLive = false;
+let capturing = false; // esta Mac está enviando audio
+let stream = null;
+let ctx = null;
+let retry = 0;
+
+try { pin = sessionStorage.getItem('pin') || ''; } catch {}
+if (pin) connect();
+
+$('login').onsubmit = (e) => {
+  e.preventDefault();
+  pin = $('pin').value.trim();
+  connect();
+};
+
+// ---------- Conexión con el servidor ----------
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const sock = new WebSocket(`${proto}://${location.host}/ws-admin?pin=${encodeURIComponent(pin)}`);
+  sock.binaryType = 'arraybuffer';
+  ws = sock;
+  sock.onopen = () => {
+    retry = 0;
+    $('conn').textContent = '';
+    // Si se cortó la conexión mientras transmitía, retoma sola.
+    if (capturing) sock.send(JSON.stringify({ type: 'start' }));
+  };
+  sock.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type !== 'stats') return;
+    try { sessionStorage.setItem('pin', pin); } catch {}
+    $('login').hidden = true;
+    $('panel').hidden = false;
+    if ($('device').options.length === 0) listDevices();
+    setupPreview(msg.channels);
+    renderStats(msg);
+  };
+  sock.onclose = (ev) => {
+    if (ev.code === 4001) {
+      try { sessionStorage.removeItem('pin'); } catch {}
+      $('panel').hidden = true;
+      $('login').hidden = false;
+      $('loginError').textContent = 'PIN incorrecto.';
+      $('loginError').hidden = false;
+      return;
+    }
+    $('conn').textContent = 'Sin conexión con el servidor; reintentando…';
+    retry = Math.min(retry + 1, 5);
+    setTimeout(connect, retry * 1000);
+  };
+}
+
+function renderStats(s) {
+  serverLive = s.live;
+  $('mock').hidden = !s.mock;
+  $('badge').textContent = s.live ? 'En vivo' : 'Detenida';
+  $('badge').classList.toggle('live', s.live);
+  $('error').textContent = s.error;
+  $('error').hidden = !s.error;
+  $('url').textContent = s.url;
+  $('screenUrl').textContent = `${s.url}/pantalla?lang=${s.channels[0]?.lang || 'en'}`;
+  $('rows').replaceChildren(...s.channels.map((c) => {
+    const tr = document.createElement('tr');
+    for (const [text, cls] of [[c.name, ''], [c.listeners, 'num'], [c.session, '']]) {
+      const td = document.createElement('td');
+      td.textContent = text;
+      td.className = cls;
+      tr.append(td);
+    }
+    return tr;
+  }));
+  renderDownloads(s);
+  renderButton();
+}
+
+// ---------- Texto guardado ----------
+function renderDownloads(s) {
+  const saved = s.channels.filter((c) => c.saved > 0);
+  $('downloads').replaceChildren(...saved.map((c) => {
+    const a = document.createElement('a');
+    a.href = `/transcript?lang=${c.lang}&pin=${encodeURIComponent(pin)}`;
+    a.textContent = `Descargar ${c.name} (${c.format})`;
+    a.className = 'button';
+    return a;
+  }));
+  $('downloadsNote').textContent = saved.length === 0
+    ? 'Todavía no hay texto guardado. Aparecerá aquí al transmitir.'
+    : s.live
+      ? 'La transmisión sigue en curso: el archivo incluye lo traducido hasta este momento.'
+      : 'Descárgalo antes de cerrar esta página: el texto se conserva solo un rato después de terminar y se borra al iniciar otra prédica.';
+}
+
+// ---------- Vista previa ----------
+// Se conecta como un oyente más (sin audio) del idioma elegido.
+let previewWs = null;
+let previewText = '';
+function setupPreview(channels) {
+  const sel = $('previewLang');
+  if (sel.options.length) return;
+  sel.append(...channels.map((c) => new Option(c.name, c.lang)), new Option('Sin vista previa', ''));
+  sel.onchange = connectPreview;
+  connectPreview();
+}
+function showPreview(text) {
+  previewText = text.slice(-1200);
+  $('preview').textContent = previewText;
+  $('preview').scrollTop = $('preview').scrollHeight;
+}
+function connectPreview() {
+  const lang = $('previewLang').value;
+  const old = previewWs;
+  previewWs = null;
+  old?.close();
+  showPreview('');
+  if (!lang) return;
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const sock = new WebSocket(`${proto}://${location.host}/ws?lang=${lang}&preview=1`);
+  previewWs = sock;
+  sock.onmessage = (ev) => {
+    if (typeof ev.data !== 'string') return;
+    const msg = JSON.parse(ev.data);
+    if (msg.type === 'caption') showPreview(previewText + msg.delta);
+    else if (msg.type === 'history') showPreview(msg.text);
+  };
+  sock.onclose = () => { if (previewWs === sock) setTimeout(() => { if (previewWs === sock) connectPreview(); }, 2000); };
+}
+
+function renderButton() {
+  const on = capturing || serverLive;
+  $('toggle').textContent = on ? 'Detener transmisión' : 'Iniciar transmisión';
+  $('toggle').className = on ? 'danger' : 'primary';
+  $('device').disabled = capturing;
+}
+
+// ---------- Audio ----------
+async function listDevices() {
+  try {
+    // Pide permiso una vez para poder ver los nombres de las entradas.
+    const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
+    tmp.getTracks().forEach((t) => t.stop());
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+    $('device').replaceChildren(...devices.map((d) => new Option(d.label || 'Entrada de audio', d.deviceId)));
+  } catch (err) {
+    showLocalError(`No se pudo acceder al micrófono: ${err.message}`);
+  }
+}
+
+function showLocalError(text) {
+  $('error').textContent = text;
+  $('error').hidden = false;
+}
+
+$('toggle').onclick = async () => {
+  $('toggle').disabled = true;
+  try {
+    if (capturing || serverLive) stop(); else await start();
+  } catch (err) {
+    stop();
+    showLocalError(`No se pudo iniciar: ${err.message}`);
+  }
+  $('toggle').disabled = false;
+  renderButton();
+};
+
+async function start() {
+  const deviceId = $('device').value;
+  stream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      deviceId: deviceId ? { exact: deviceId } : undefined,
+      channelCount: 1,
+      // Sin filtros de llamada: recortan la voz cuando hay música o eco de sala.
+      echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+    },
+  });
+  ctx = new AudioContext({ sampleRate: 24000 }); // el formato que espera OpenAI
+  await ctx.audioWorklet.addModule('/worklet.js');
+  const node = new AudioWorkletNode(ctx, 'capture');
+  node.port.onmessage = (ev) => {
+    if (ws?.readyState === WebSocket.OPEN && ws.bufferedAmount < 1_000_000) ws.send(ev.data);
+    showLevel(new Int16Array(ev.data));
+  };
+  const silent = ctx.createGain();
+  silent.gain.value = 0; // mantiene el nodo activo sin sonar por las bocinas
+  ctx.createMediaStreamSource(stream).connect(node).connect(silent).connect(ctx.destination);
+  stream.getAudioTracks()[0].onended = () => { stop(); showLocalError('Se desconectó la entrada de audio.'); renderButton(); };
+  capturing = true;
+  ws.send(JSON.stringify({ type: 'start' }));
+}
+
+function stop() {
+  capturing = false;
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'stop' }));
+  stream?.getTracks().forEach((t) => t.stop());
+  stream = null;
+  ctx?.close();
+  ctx = null;
+  $('level').style.width = '0';
+}
+
+function showLevel(pcm) {
+  let peak = 0;
+  for (let i = 0; i < pcm.length; i += 8) peak = Math.max(peak, Math.abs(pcm[i]));
+  $('level').style.width = `${Math.min(100, (peak / 32768) * 140)}%`;
+}
+
+window.addEventListener('beforeunload', (e) => { if (capturing) e.preventDefault(); });
+</script>
+</body>
+</html>
