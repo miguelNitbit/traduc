@@ -9,3 +9,8 @@ firebase.json
 .firebase/
 README.md
 LICENSE
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+.mcp.json
+AGENTS.md

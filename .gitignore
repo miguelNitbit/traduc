@@ -12,3 +12,10 @@ firebase.json
 hosting/
 
 .DS_Store
+
+# Archivos de asistentes de IA
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+.mcp.json
+AGENTS.md
